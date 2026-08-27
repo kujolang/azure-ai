@@ -1,0 +1,2 @@
+test_setup { from azure_ai import create_client }
+test "installed root export resolves" { c := create_client({"endpoint": "https://example.openai.azure.com", "deployment": "d"}); assert_equal(c["deployment"], "d") }

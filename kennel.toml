@@ -1,0 +1,32 @@
+[package]
+name = "azure-ai"
+version = "0.1.0"
+description = "Native Azure OpenAI and Microsoft Foundry deployment client for Kujo."
+license = "MIT"
+authors = ["Kujolang <contact@kujolang.ai>"]
+repository = "https://github.com/kujolang/azure-ai"
+keywords = ["kujo", "azure", "foundry", "openai"]
+categories = ["ai", "developer-tools"]
+readme = "README.md"
+[package.status]
+stage = "experimental"
+stability = "early"
+public_api = true
+[kujo]
+minimum_version = "1.0.2"
+entry = "azure_ai.kujo"
+sources = ["src", "."]
+includes = ["README.md", "CHANGELOG.md", "docs", "examples", "tests", "AGENTS.md"]
+excludes = [".git", "kennel_packages", "dist", "build", "node_modules", ".loop-engineering"]
+[build]
+command = ""
+output = "dist"
+artifacts = []
+[dependencies]
+[dev-dependencies]
+[scripts]
+test = "kujo test-run tests/native_tests.kujo"
+verify-offline = "bash scripts/release_quality_gate.sh"
+[package.exports]
+azure_ai = "src/azure_ai.kujo"
+client = "src/azure_ai.kujo"

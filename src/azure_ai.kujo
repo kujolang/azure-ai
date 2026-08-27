@@ -1,0 +1,25 @@
+func get(o, k, f) { if type(o) == "dict" && has_key(o, k) { return o[k] }; return f }
+func redact(v, s) { if type(v) == "string" && type(s) == "string" && s != "" { return replace(v, s, "[REDACTED]") }; return v }
+func host_of(u) { p := split(u, "/"); if len(p) >= 3 { return lower(p[2]) }; return "" }
+func valid(u) { if type(u) != "string" || trim(u) == "" { return "Azure endpoint required." }; if contains(u, "@") || contains(u, "?") || contains(u, "#") { return "Azure endpoint unsafe." }; if contains(lower(u), "https://") { h := host_of(u); if contains(h, ".openai.azure.com") || contains(h, ".services.ai.azure.com") { return "" }; return "Azure endpoint host is not approved." }; return "Azure endpoint must use HTTPS." }
+func create_client_impl(config) { if type(config) != "dict" { config := {} }; endpoint := get(config, "endpoint", env("AZURE_OPENAI_ENDPOINT")); key := get(config, "api_key", env("AZURE_OPENAI_API_KEY")); token := get(config, "access_token", ""); if type(key) != "string" { key := "" }; if type(token) != "string" { token := "" }; return {"endpoint": endpoint, "api_key": key, "access_token": token, "deployment": get(config, "deployment", ""), "api_version": get(config, "api_version", "2024-10-21"), "timeout": get(config, "timeout", 60.0), "transport": get(config, "transport", null), "validation_error": valid(endpoint)} }
+func transport_for(c) { if type(get(c, "transport", null)) == "function" { return c["transport"] }; return http_request }
+func chat_request(c, payload) {
+	if c["validation_error"] != "" { return {"ok": false, "message": c["validation_error"]} }
+	h := {"Content-Type": "application/json"}
+	if c["api_key"] != "" { h["api-key"] := c["api_key"] }
+	if c["access_token"] != "" { h["Authorization"] := "Bearer " + c["access_token"] }
+	path := "/openai/deployments/" + c["deployment"] + "/chat/completions?api-version=" + c["api_version"]
+	result := transport_for(c)(c["endpoint"] + path, {"method": "POST", "timeout": c["timeout"], "_headers": h, "_body": to_json(payload)})
+	match result {
+		case Err(e): { return {"ok": false, "message": redact(to_string(e), c["api_key"])} }
+		case Ok(r): {
+			status := get(r, "_status", 0); raw := get(r, "_body", ""); data := null
+			try { data = parse_json(raw) } except e { data = {} }
+			if status < 200 || status > 299 { return {"ok": false, "status_code": status, "message": redact(to_string(get(data, "error", "Azure request failed")), c["api_key"]), "data": data} }
+			return {"ok": true, "status_code": status, "data": data}
+		}
+	}
+}
+export create_client := create_client_impl
+export chat := func(c, options) { return chat_request(c, options) }

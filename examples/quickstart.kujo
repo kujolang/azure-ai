@@ -1,0 +1,4 @@
+from azure_ai import create_client, chat
+client := create_client({"endpoint": "https://example.openai.azure.com", "deployment": "gpt-4o"})
+result := chat(client, {"messages": [{"role": "user", "content": "Say hello."}]})
+print(result["data"])
