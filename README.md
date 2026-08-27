@@ -1,6 +1,6 @@
 # Azure AI Provider for Kujo
 
-[![Version](https://img.shields.io/badge/version-0.1.0-black)](https://github.com/kujolang/azure-ai/releases/tag/v0.1.0)
+[![Version](https://img.shields.io/badge/version-0.1.1-black)](https://github.com/kujolang/azure-ai/releases/tag/v0.1.1)
 [![License](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 [![built with Kujo](https://img.shields.io/badge/built%20with-Kujo-black)](https://github.com/kujolang/kujo)
 
@@ -10,7 +10,7 @@ deployment, API version, and credential mode remain explicit.
 ## Install
 
 ```bash
-kujo kennel add github:kujolang/azure-ai@v0.1.0
+kujo kennel add github:kujolang/azure-ai@v0.1.1
 kujo kennel install
 ```
 

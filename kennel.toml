@@ -1,6 +1,6 @@
 [package]
 name = "azure-ai"
-version = "0.1.0"
+version = "0.1.1"
 description = "Native Azure OpenAI and Microsoft Foundry deployment client for Kujo."
 license = "MIT"
 authors = ["Kujolang <contact@kujolang.ai>"]

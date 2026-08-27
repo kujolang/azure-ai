@@ -10,8 +10,8 @@ Contract version: `1.0.1`.
 | Authentication/security | PASS | API key/Entra headers, host policy, redaction tests. |
 | Deterministic tests | PASS | Three credential-free tests. |
 | Kennel manifest/exports | PASS | Valid manifest and explicit exports. |
-| Clean-room distribution | PENDING | Complete after immutable tag. |
-| Release metadata | PENDING | Complete after immutable tag. |
+| Clean-room distribution | PASS | Fresh v0.1.1 install, reinstall, validation, and installed smoke. |
+| Release metadata | PASS | Immutable v0.1.1 tag and verified remote commit. |
 | Documentation/agent guidance | PASS | README, reports, example, AGENTS. |
 
 All applicable native requirements pass; AI SDK integration is intentionally N/A.
