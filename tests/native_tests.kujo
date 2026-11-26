@@ -2,3 +2,50 @@ test_setup { from src.azure_ai import create_client, chat }
 test "deployment endpoint and api key auth" { c := create_client({"endpoint": "https://example.openai.azure.com", "deployment": "gpt-4o", "api_key": "fixture-token", "transport": func(url, options) { assert_equal(contains(url, "/openai/deployments/gpt-4o/chat/completions"), 1); assert_equal(options["_headers"]["api-key"], "fixture-token"); return Ok({"_status": 200, "_body": "{\"choices\":[]}"}) }}); assert_true(chat(c, {"messages": []})["ok"]) }
 test "Entra bearer is supported" { c := create_client({"endpoint": "https://example.services.ai.azure.com", "deployment": "d", "access_token": "fixture", "transport": func(url, options) { assert_equal(options["_headers"]["Authorization"], "Bearer fixture"); return Ok({"_status": 200, "_body": "{}"}) }}); assert_true(chat(c, {})["ok"]) }
 test "unsafe endpoint is rejected" { c := create_client({"endpoint": "http://evil.example"}); assert_true(c["validation_error"] != "") }
+
+test "resource forms are canonical and only the chosen authentication is sent" {
+    c := create_client({"endpoint": " https://EXAMPLE.services.ai.azure.com/openai/ ", "deployment": "model-4.1", "api_version": "2024-05-01-preview", "api_key": "fixture-key", "access_token": "fixture-bearer", "transport": func(url, options) {
+        assert_equal(url, "https://example.services.ai.azure.com/openai/deployments/model-4.1/chat/completions?api-version=2024-05-01-preview")
+        assert_equal(options["_headers"]["Authorization"], "Bearer fixture-bearer")
+        assert_equal(has_key(options["_headers"], "api-key"), 0)
+        assert_equal(options["redirects"], "none")
+        return Ok({"_status": 200, "_body": "{}"})
+    }})
+    assert_true(chat(c, {})["ok"])
+}
+
+test "empty settings fail before the transport is used" {
+    unused := func(url, options) { throw("transport must not be called") }
+    for settings in [
+        {"endpoint": "https://example.openai.azure.com", "api_key": "fixture-key", "transport": unused},
+        {"endpoint": "https://example.openai.azure.com", "deployment": "d", "api_version": "", "api_key": "fixture-key", "transport": unused},
+        {"endpoint": "https://example.openai.azure.com", "deployment": "d", "api_key": "", "transport": unused},
+        {"endpoint": "https://fixtures.example.test", "deployment": "d", "api_key": "fixture-key", "transport": unused}
+    ] {
+        assert_equal(chat(create_client(settings), {})["ok"], false)
+    }
+}
+
+test "transport errors and nested Azure diagnostics redact both configured credentials" {
+    config := {"endpoint": "https://example.openai.azure.com", "deployment": "d", "api_key": "fixture-key", "access_token": "fixture-bearer"}
+    config["transport"] := func(url, options) { return Err("fixture-bearer reported fixture-key") }
+    failure := chat(create_client(config), {})
+    assert_equal(failure["message"], "[REDACTED] reported [REDACTED]")
+    config["transport"] := func(url, options) {
+        return Ok({"_status": 401, "_body": "{\"error\":{\"code\":\"authentication\",\"message\":\"fixture-bearer\",\"details\":[{\"value\":\"fixture-key\"}]}}"})
+    }
+    failure = chat(create_client(config), {})
+    assert_equal(failure["status_code"], 401)
+    assert_equal(failure["message"], "[REDACTED]")
+    assert_equal(failure["data"]["error"]["code"], "authentication")
+    assert_equal(failure["data"]["error"]["details"][0]["value"], "[REDACTED]")
+}
+
+test "successful Azure HTTP status requires a JSON object" {
+    for body in ["", "invalid json", "[]"] {
+        transport := func(url, options) { return Ok({"_status": 200, "_body": body}) }
+        result := chat(create_client({"endpoint": "https://example.openai.azure.com", "deployment": "d", "api_key": "fixture-key", "transport": transport}), {})
+        assert_equal(result["ok"], false)
+        assert_equal(result["status_code"], 200)
+    }
+}

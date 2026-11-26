@@ -1,25 +1,108 @@
-func get(o, k, f) { if type(o) == "dict" && has_key(o, k) { return o[k] }; return f }
-func redact(v, s) { if type(v) == "string" && type(s) == "string" && s != "" { return replace(v, s, "[REDACTED]") }; return v }
-func host_of(u) { p := split(u, "/"); if len(p) >= 3 { return lower(p[2]) }; return "" }
-func valid(u) { if type(u) != "string" || trim(u) == "" { return "Azure endpoint required." }; if contains(u, "@") || contains(u, "?") || contains(u, "#") { return "Azure endpoint unsafe." }; if contains(lower(u), "https://") { h := host_of(u); if contains(h, ".openai.azure.com") || contains(h, ".services.ai.azure.com") { return "" }; return "Azure endpoint host is not approved." }; return "Azure endpoint must use HTTPS." }
-func create_client_impl(config) { if type(config) != "dict" { config := {} }; endpoint := get(config, "endpoint", env("AZURE_OPENAI_ENDPOINT")); key := get(config, "api_key", env("AZURE_OPENAI_API_KEY")); token := get(config, "access_token", ""); if type(key) != "string" { key := "" }; if type(token) != "string" { token := "" }; return {"endpoint": endpoint, "api_key": key, "access_token": token, "deployment": get(config, "deployment", ""), "api_version": get(config, "api_version", "2024-10-21"), "timeout": get(config, "timeout", 60.0), "transport": get(config, "transport", null), "validation_error": valid(endpoint)} }
-func transport_for(c) { if type(get(c, "transport", null)) == "function" { return c["transport"] }; return http_request }
-func chat_request(c, payload) {
-	if c["validation_error"] != "" { return {"ok": false, "message": c["validation_error"]} }
-	h := {"Content-Type": "application/json"}
-	if c["api_key"] != "" { h["api-key"] := c["api_key"] }
-	if c["access_token"] != "" { h["Authorization"] := "Bearer " + c["access_token"] }
-	path := "/openai/deployments/" + c["deployment"] + "/chat/completions?api-version=" + c["api_version"]
-	result := transport_for(c)(c["endpoint"] + path, {"method": "POST", "timeout": c["timeout"], "_headers": h, "_body": to_json(payload)})
-	match result {
-		case Err(e): { return {"ok": false, "message": redact(to_string(e), c["api_key"])} }
-		case Ok(r): {
-			status := get(r, "_status", 0); raw := get(r, "_body", ""); data := null
-			try { data = parse_json(raw) } except e { data = {} }
-			if status < 200 || status > 299 { return {"ok": false, "status_code": status, "message": redact(to_string(get(data, "error", "Azure request failed")), c["api_key"]), "data": data} }
-			return {"ok": true, "status_code": status, "data": data}
-		}
-	}
+func get(value, key, fallback) {
+    if type(value) == "dict" && has_key(value, key) { return value[key] }
+    return fallback
 }
+
+func endpoint_origin(endpoint) {
+    if type(endpoint) != "string" { return "" }
+    url := lower(trim(endpoint))
+    if !regex_match(url, "^https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.(?:openai\\.azure\\.com|services\\.ai\\.azure\\.com)(?::443)?(?:/openai)?/*$") { return "" }
+    return "https://" + split(url, "/")[2]
+}
+
+func create_client_impl(config) {
+    endpoint := get(config, "endpoint", null)
+    if type(endpoint) == "null" { endpoint = env("AZURE_OPENAI_ENDPOINT") }
+    key := get(config, "api_key", null)
+    token := get(config, "access_token", "")
+    if type(token) != "string" { token = "" }
+    if type(key) == "null" && token == "" { key = env("AZURE_OPENAI_API_KEY") }
+    if type(key) != "string" { key = "" }
+
+    origin := endpoint_origin(endpoint)
+    problem := ""
+    if origin == "" { problem = "Azure endpoint must be an HTTPS OpenAI or Foundry resource URL." }
+    return {
+        "endpoint": origin,
+        "api_key": key,
+        "access_token": token,
+        "deployment": get(config, "deployment", ""),
+        "api_version": get(config, "api_version", "2024-10-21"),
+        "timeout": get(config, "timeout", 60.0),
+        "transport": get(config, "transport", null),
+        "validation_error": problem
+    }
+}
+
+func redact_text(text, client) {
+    for secret in [get(client, "access_token", ""), get(client, "api_key", "")] {
+        if type(secret) == "string" && secret != "" { text = replace(text, secret, "[REDACTED]") }
+    }
+    return text
+}
+
+func redact_data(value, client) {
+    if type(value) != "dict" { return {} }
+    // Process only quoted JSON tokens, including keys. Number and boolean
+    // literals stay intact when a credential also contains digits.
+    encoded := to_json(value)
+    quoted_token := "\"(?:[^\"\\\\]|\\\\.)*\""
+    quoted := regex_find_all(encoded, quoted_token)
+    literal := regex_split(encoded, quoted_token)
+    pieces := []
+    index := 0
+    for token in quoted {
+        decoded := parse_json(token)
+        pieces = push(pieces, literal[index])
+        pieces = push(pieces, to_json(redact_text(decoded, client)))
+        index = index + 1
+    }
+    pieces = push(pieces, literal[index])
+    return parse_json(join(pieces, ""))
+}
+
+func chat_request(client, payload) {
+    origin := endpoint_origin(get(client, "endpoint", ""))
+    if origin == "" { return {"ok": false, "message": "Azure endpoint must be an HTTPS OpenAI or Foundry resource URL."} }
+    deployment := get(client, "deployment", "")
+    if type(deployment) != "string" || !regex_match(deployment, "^[A-Za-z0-9_.()-]{1,128}$") || deployment == "." || deployment == ".." {
+        return {"ok": false, "message": "Azure deployment must be a non-empty deployment name."}
+    }
+    version := get(client, "api_version", "")
+    if type(version) != "string" || !regex_match(version, "^[0-9]{4}-[0-9]{2}-[0-9]{2}(?:-preview)?$") {
+        return {"ok": false, "message": "Azure API version must be a date or preview date."}
+    }
+    headers := {"Content-Type": "application/json"}
+    token := get(client, "access_token", "")
+    key := get(client, "api_key", "")
+    if type(token) == "string" && trim(token) != "" { headers["Authorization"] := "Bearer " + token }
+    else if type(key) == "string" && trim(key) != "" { headers["api-key"] := key }
+    else { return {"ok": false, "message": "Azure API key or Entra access token is required."} }
+
+    path := "/openai/deployments/" + deployment + "/chat/completions?api-version=" + version
+    transport := get(client, "transport", null)
+    if type(transport) != "function" { transport = http_request }
+    result := transport(origin + path, {"method": "POST", "timeout": get(client, "timeout", 60.0), "redirects": "none", "_headers": headers, "_body": to_json(payload)})
+    match result {
+        case Err(error): { return {"ok": false, "message": redact_text(to_string(error), client)} }
+        case Ok(response): {
+            status := get(response, "_status", 0)
+            if type(status) != "int" { return {"ok": false, "message": "Azure returned an invalid HTTP status."} }
+            raw := get(response, "_body", "")
+            data := null
+            try { data = parse_json(raw) } except error { data = null }
+            if status < 200 || status > 299 {
+                details := redact_data(data, client)
+                error := get(details, "error", "")
+                message := get(error, "message", error)
+                if type(message) != "string" || message == "" { message = "Azure request failed." }
+                return {"ok": false, "status_code": status, "message": message, "data": details}
+            }
+            if type(data) != "dict" { return {"ok": false, "status_code": status, "message": "Azure returned a malformed JSON response."} }
+            return {"ok": true, "status_code": status, "data": data}
+        }
+    }
+}
+
 export create_client := create_client_impl
-export chat := func(c, options) { return chat_request(c, options) }
+export chat := func(client, options) { return chat_request(client, options) }
