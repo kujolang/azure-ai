@@ -5,7 +5,7 @@
 [![built with Kujo](https://img.shields.io/badge/built%20with-Kujo-black)](https://github.com/kujolang/kujo)
 
 Native Azure OpenAI / Microsoft Foundry deployment client for Kujo. Resource,
-deployment, API version, and credential mode remain explicit.
+deployment, API version, and credential mode remain explicit. This source uses Kujo 1.2.0 or newer for credentialed HTTP requests.
 
 ## Install
 
@@ -61,14 +61,21 @@ version behavior have a governed generic adapter. Use the native client.
 
 ## Authentication and security
 
-Use `AZURE_OPENAI_API_KEY` or an externally acquired `AZURE_OPENAI_ACCESS_TOKEN`.
-Only HTTPS Azure OpenAI/Foundry hosts are accepted; embedded credentials and
-secret leakage are rejected or redacted.
+Configure a resource URL under `openai.azure.com` or `services.ai.azure.com`.
+The resource origin and the same URL ending in `/openai` are accepted. Requests
+use the selected deployment and API version and keep redirects disabled.
+
+Configure `AZURE_OPENAI_API_KEY` or pass an externally acquired Entra token as
+`access_token`. A supplied Entra token takes precedence and only its
+authorization header is sent. Failed request messages and structured error
+details redact both configured credentials.
 
 ## Testing and docs
 
 ```bash
 bash scripts/release_quality_gate.sh
 ```
+
+The fixture contracts run on published Kujo 1.2.0. For the standalone example on that runtime, use `kujo run examples/quickstart.kujo --interpreter`. The current default VM path is verified on Kujo 1.10.0.
 
 See [`docs/`](docs/) for implementation and conformance reports.
