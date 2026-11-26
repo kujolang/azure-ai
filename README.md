@@ -28,7 +28,12 @@ client := create_client({
 result := chat(client, {
     "messages": [{"role": "user", "content": "Say hello."}],
 })
-print(result["data"])
+if result["ok"] {
+    print(result["data"])
+} else {
+    eprint(result["message"])
+    exit(1)
+}
 ```
 
 ## Native Provider API
